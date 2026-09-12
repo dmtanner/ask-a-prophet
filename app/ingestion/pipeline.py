@@ -54,6 +54,58 @@ def _save_checkpoint(state: dict):
         json.dump(merged, f, indent=2)
 
 
+def _resume_plan(checkpoint: dict, gc_enabled: bool, jod_enabled: bool) -> tuple[dict, dict]:
+    """Decide skip/resume for each source.
+
+    If every *enabled* source already finished, start a fresh pass (chunk IDs upsert).
+    Otherwise skip sources marked complete and resume the rest.
+    """
+    gc = checkpoint.get("general_conference", {})
+    jod = checkpoint.get("journal_of_discourses", {})
+    enabled_complete = []
+    if gc_enabled:
+        enabled_complete.append(bool(gc.get("complete")))
+    if jod_enabled:
+        enabled_complete.append(bool(jod.get("complete")))
+    fresh = bool(enabled_complete) and all(enabled_complete)
+
+    if fresh:
+        logger.info("Previous ingest finished; starting a fresh pass")
+        return (
+            {"skip": False, "resume_from_id": 0},
+            {"skip": False, "resume_from_id": 0, "completed_volumes": set()},
+        )
+    return (
+        {
+            "skip": bool(gc.get("complete")),
+            "resume_from_id": gc.get("resume_from_id", 0),
+        },
+        {
+            "skip": bool(jod.get("complete")),
+            "resume_from_id": jod.get("resume_from_id", 0),
+            "completed_volumes": set(jod.get("completed_volumes", [])),
+        },
+    )
+
+
+def _save_source_progress(source_type: str, last_item_id: int, done_volumes: set, complete: bool):
+    if source_type == "conference":
+        _save_checkpoint({
+            "general_conference": {
+                "resume_from_id": last_item_id,
+                "complete": complete,
+            }
+        })
+    else:
+        _save_checkpoint({
+            "journal_of_discourses": {
+                "resume_from_id": last_item_id,
+                "completed_volumes": sorted(done_volumes),
+                "complete": complete,
+            }
+        })
+
+
 def ingest_all():
     """Full ingestion pipeline with checkpoint/resume support.
 
@@ -66,10 +118,12 @@ def ingest_all():
     checkpoint = _load_checkpoint()
     logger.info(f"Checkpoint state: {checkpoint}")
 
-    gc_resume_id = checkpoint.get("general_conference", {}).get("resume_from_id", 0)
-    jord_skipped_vols = set(checkpoint.get("journal_of_discourses", {}).get("completed_volumes", []))
+    sources_cfg = config.get("ingestion", {}).get("sources", {})
+    gc_enabled = sources_cfg.get("general_conference", {}).get("enabled", False)
+    jod_enabled = sources_cfg.get("journal_of_discourses", {}).get("enabled", False)
 
-    # Chunking setup
+    gc_state, jod_state = _resume_plan(checkpoint, gc_enabled, jod_enabled)
+
     split_cfg = config.get("splitting", {})
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=split_cfg.get("chunk_size", 800),
@@ -81,28 +135,28 @@ def ingest_all():
     chroma_cfg = config.get("chroma", {})
     collection_name = chroma_cfg.get("collection_name", "prophet_quotes")
 
-    # Fresh runs (checkpoint marked complete) restart from ID 0; chunk IDs are keyed by talk so re-adding upserts.
-    # Build loaders list with resume info
     loaders_to_run = []
 
-    gc_config = config.get("ingestion", {}).get("sources", {}).get("general_conference", {})
-    if gc_config.get("enabled", False):
+    if gc_enabled and not gc_state["skip"]:
         loaders_to_run.append({
             "name": "General Conference",
             "loader": GeneralConferenceLoader(),
-            "resume_id": gc_resume_id,
+            "resume_id": gc_state["resume_from_id"],
             "source_type": "conference",
         })
+    elif gc_enabled:
+        logger.info("Skipping General Conference (already complete in this pass)")
 
-    jord_config = config.get("ingestion", {}).get("sources", {}).get("journal_of_discourses", {})
-    if jord_config.get("enabled", False):
+    if jod_enabled and not jod_state["skip"]:
         loaders_to_run.append({
             "name": "Journal of Discourses",
             "loader": JournalOfDiscoursesLoader(),
-            "resume_id": -1,  # not meaningful for journal but needed below
-            "completed_volumes": jord_skipped_vols,
+            "resume_id": jod_state["resume_from_id"],
+            "completed_volumes": jod_state["completed_volumes"],
             "source_type": "journal",
         })
+    elif jod_enabled:
+        logger.info("Skipping Journal of Discourses (already complete in this pass)")
 
     if not loaders_to_run:
         logger.warning("No sources enabled in config")
@@ -128,10 +182,15 @@ def ingest_all():
         if source_type == "conference":
             items_generator = loader.load(resume_from=resume_from)
         else:
-            items_generator = loader.load(resume_from=0)  # all volumes, no skip
+            items_generator = loader.load(
+                resume_from=resume_from,
+                skip_completed=completed_volumes,
+            )
 
         yield_count = 0
-        last_id_or_vol = resume_from if isinstance(resume_from, int) else -1
+        last_item_id = resume_from if isinstance(resume_from, int) else 0
+        current_vol = None
+        done_volumes = set(completed_volumes)
 
         BATCH_SIZE = 50
         batch_raw = []
@@ -141,12 +200,14 @@ def ingest_all():
             yield_count += 1
 
             m = item.get("metadata", {})
-            talk_id = m.get("id") if source_type == "conference" else None
+            item_id = m.get("id")
+            if item_id is not None:
+                last_item_id = item_id
             vol_num = m.get("volume") if source_type == "journal" else None
-            if talk_id:
-                last_id_or_vol = max(last_id_or_vol, talk_id)
-            if vol_num:
-                last_id_or_vol = max(last_id_or_vol, vol_num)
+            if vol_num is not None:
+                if current_vol is not None and vol_num != current_vol:
+                    done_volumes.add(current_vol)
+                current_vol = vol_num
 
             if len(batch_raw) >= BATCH_SIZE:
                 chunked = _chunk_and_store(
@@ -154,18 +215,12 @@ def ingest_all():
                     collection_name, name, yield_count
                 )
                 total_chunks += chunked
-
                 del batch_raw, chunked
                 batch_raw = []
+                _save_source_progress(
+                    source_type, last_item_id, done_volumes, complete=False
+                )
 
-                if source_type == "conference":
-                    _save_checkpoint({"general_conference": {"resume_from_id": last_id_or_vol + 1}})
-                else:
-                    sk = set(completed_volumes)
-                    sk.add(last_id_or_vol)
-                    _save_checkpoint({"journal_of_discourses": {"completed_volumes": list(sk)}})
-
-        # Final batch
         if batch_raw:
             chunked = _chunk_and_store(
                 batch_raw, source_type, splitter, vector_store,
@@ -174,13 +229,11 @@ def ingest_all():
             total_chunks += chunked
             del batch_raw, chunked
 
-        logger.info(f"Completed {name}: {yield_count} items yielded")
+        if current_vol is not None:
+            done_volumes.add(current_vol)
+        _save_source_progress(source_type, last_item_id, done_volumes, complete=True)
 
-    # Final checkpoint: mark all sources as complete
-    _save_checkpoint({
-        "general_conference": {"resume_from_id": 0, "complete": True},
-        "journal_of_discourses": {"completed_volumes": [], "complete": True},
-    })
+        logger.info(f"Completed {name}: {yield_count} items yielded")
 
     logger.info(f"Ingestion complete — {total_chunks} total chunks chunked into ChromaDB")
     return total_chunks

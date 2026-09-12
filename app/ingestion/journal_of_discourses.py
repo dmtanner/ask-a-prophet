@@ -46,7 +46,7 @@ def extract_body(doc: BeautifulSoup) -> str:
 
 class JournalOfDiscoursesLoader:
 
-    def load(self, resume_from: int = 0, skip_completed: set = None) -> Iterator[dict]:
+    def load(self, resume_from: int = 0, skip_completed: set | None = None) -> Iterator[dict]:
         """Yield sermons from all 4 volumes of the Journal of Discourses.
 
         :param resume_from: ID to resume from. If > 1, skips all IDs up to and including it.

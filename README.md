@@ -4,6 +4,8 @@ Local RAG app that answers questions using teachings from [General Conference](h
 
 It retrieves relevant passages from a local ChromaDB index, then asks a local Ollama model to answer in a unified “prophet persona” — warm, scripture-grounded counsel, without inventing quotes.
 
+This is an unofficial personal project. It is not affiliated with, endorsed by, or a product of The Church of Jesus Christ of Latter-day Saints. Conference talks remain copyrighted by the Church; this repo does not redistribute that text. Ingest fetches publicly available pages onto your machine for local search only — do not republish the corpus.
+
 ## Prerequisites
 
 - Python 3.11+
@@ -93,3 +95,7 @@ The vector store and ingest logs stay on disk and are gitignored. After cloning,
 3. **Generate** — the LLM answers from those chunks only, citing speaker, title, and date.
 
 All inference stays on your machine via Ollama. Source text comes from publicly available conference talks and historical writings.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -21,15 +21,6 @@ ingestion:
       
     journal_of_discourses:
       enabled: true
-      volumes:
-        - id: 1
-          archive_url: "https://archive.org/download/journalofdiscour01lond"
-        - id: 2
-          archive_url: "https://archive.org/download/journalofdiscour02lond"
-        - id: 3
-          archive_url: "https://archive.org/download/journalofdiscour03lond"
-        - id: 4
-          archive_url: "https://archive.org/download/journalofdiscour04lond"
 
 # Text splitting
 splitting:
