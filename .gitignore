@@ -1,0 +1,24 @@
+# Local vector stores
+chroma/
+chroma_db/
+chroma_langchain_db/
+chroma_persistent_db/
+chroma_persistent_db.bak-*/
+
+# Runtime / ingest state
+*.log
+.ingest_checkpoint.json
+.config_backup.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+
+# Notebooks / editor
+.ipynb_checkpoints/
+.DS_Store

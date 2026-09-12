@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prophet RAG</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f4f3ef; color: #2c2c2c; min-height: 100vh; display: flex; justify-content: center; }
+    .container { max-width: 780px; width: 100%; padding: 2rem 1.5rem; }
+    h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 0.3rem; text-align: center; letter-spacing: -0.02em; color: #3a3226; }
+    .subtitle { font-size: 0.85rem; color: #7a7368; text-align: center; margin-bottom: 2rem; }
+    .query-box { background: #fff; border-radius: 12px; padding: 1.25rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 1.5rem; }
+    .query-box textarea { width: 100%; border: none; resize: vertical; font-size: 1rem; line-height: 1.6; min-height: 52px; max-height: 200px; background: transparent; outline: none; color: #2c2c2c; }
+    .query-box textarea::placeholder { color: #b5ada4; }
+    .bottom-row { display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; }
+    .sources-toggle { font-size: 0.8rem; color: #8a8378; background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0; }
+    .sources-toggle:hover { color: #4a4236; }
+    .btn { font-size: 0.9rem; padding: 0.5rem 1.4rem; border-radius: 8px; border: none; cursor: pointer; background: #5c4f3d; color: #fff; font-weight: 500; transition: background 0.15s; }
+    .btn:hover { background: #4a3f31; }
+    .btn:disabled { opacity: 0.5; cursor: wait; }
+    .answer-box { background: #fff; border-radius: 12px; padding: 1.5rem 1.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 1rem; line-height: 1.7; font-size: 0.98rem; white-space: pre-wrap; }
+    .answer-box p { margin-bottom: 0.5rem; }
+    .answer-box p:last-child { margin-bottom: 0; }
+
+    .empty-state { text-align: center; padding: 3rem 1rem; color: #a89f93; font-size: 0.95rem; }
+    .status-bar { text-align: center; margin-top: 1.5rem; font-size: 0.75rem; color: #b5ada4; }
+    .sources-box { background: #fffbe8; border: 1px solid #e6ddc0; border-radius: 10px; padding: 1.25rem 1.5rem; margin-top: 1.5rem; display: none; line-height: 1.75; }
+    .sources-box.visible { display: block; }
+    .sources-title { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #8a7f62; margin-bottom: 0.75rem; }
+    .source-item { padding: 0.75rem 0; border-top: 1px solid #e6ddc0; font-size: 0.9rem; }
+    .source-item:last-child { border-bottom: none; }
+    .source-citation { font-weight: 600; color: #5a4f3a; margin-bottom: 0.2rem; font-size: 0.85rem; }
+    .source-quote { color: #4a4236; background: rgba(0,0,0,0.03); border-radius: 6px; padding: 0.6rem 0.9rem; font-style: italic; font-size: 0.9rem; margin-top: 0.15rem; }
+    .source-type { font-size: 0.75rem; color: #8a7f62; margin: 0.15rem 0 0; display: inline-block; background: rgba(90,79,58,0.08); padding: 0.1rem 0.45rem; border-radius: 4px; }
+
+    footer { text-align: center; margin-top: 2.5rem; font-size: 0.75rem; color: #bbb7ae; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Prophet RAG</h1>
+    <p class="subtitle">Receive counsel from the prophets — with full source citations.</p>
+
+    <div class="query-box" id="qbox">
+      <textarea id="query" placeholder="What can I do to improve my relationship with my spouse?" rows="2"></textarea>
+      <div class="bottom-row">
+        <button class="sources-toggle" id="toggleSources" style="display:none;">Show Sources</button>
+        <button class="btn" id="submitBtn">Ask</button>
+      </div>
+    </div>
+
+    <div class="answer-box empty-state" id="answerBox" style="display:none;"></div>
+    <div class="sources-box" id="sourcesBox"></div>
+
+    <footer>All text drawn from publicly available conference talks and historical writings.</footer>
+  </div>
+
+  <script>
+    const queryEl = document.getElementById('query');
+    const submitBtn = document.getElementById('submitBtn');
+    const answerBox = document.getElementById('answerBox');
+    const sourcesBox = document.getElementById('sourcesBox');
+    const toggleBtn = document.getElementById('toggleSources');
+    let currentSources = [];
+
+    function showAnswer(answer, sources) {
+      const paragraphs = answer.split('\n').filter(l => l.trim());
+      answerBox.innerHTML = '<h3 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem;color:#3a3226;">Answer</h3>' +
+        paragraphs.map(p => '<p>' + escapeHtml(p) + '</p>').join('');
+      answerBox.style.display = 'block';
+      currentSources = sources || [];
+
+      if (currentSources.length > 0) {
+        toggleBtn.style.display = 'inline';
+        renderSources(sources, false);
+      } else {
+        toggleBtn.style.display = 'none';
+      }
+    }
+
+    function renderSources(sources, initial) {
+      sourcesBox.innerHTML = '<h3 class="sources-title">Sources</h3>' +
+        sources.map((s, i) => {
+          let citParts = [];
+          if (s.speaker) citParts.push(s.speaker);
+          if (s.date) citParts.push(s.date);
+          const citation = citParts.length ? citParts.join(', ') : 'Unknown source';
+          return '<div class="source-item">' +
+            '<div class="source-citation">' + escapeHtml(citation) + '</div>' +
+            '<div><em>"' + escapeHtml(s.quote) + '</em> &mdash; ' + escapeHtml(s.title) + '</div>' +
+            '<span class="source-type">' + escapeHtml(s.source || 'General Conference') + '</span>' +
+            '</div>';
+        }).join('');
+
+      if (initial) sourcesBox.classList.add('visible');
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      const isVisible = sourcesBox.classList.contains('visible');
+      if (isVisible) {
+        sourcesBox.classList.remove('visible');
+      } else {
+        renderSources(currentSources, true);
+      }
+      toggleBtn.textContent = isVisible ? 'Show Sources' : 'Hide Sources';
+    });
+
+    submitBtn.addEventListener('click', doQuery);
+    queryEl.addEventListener('keydown', (e) => { 
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doQuery(); }
+    });
+
+    async function doQuery() {
+      const query = queryEl.value.trim();
+      if (!query) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Thinking&hellip;';
+      answerBox.style.display = 'none';
+      sourcesBox.classList.remove('visible');
+      toggleBtn.style.display = 'none';
+
+      try {
+        const res = await fetch('/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, k: 5 })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        showAnswer(data.answer, data.sources);
+      } catch (err) {
+        answerBox.innerHTML = '<p style="color:#c44;">Error: ' + escapeHtml(err.message) + '</p><p>Is the API server running?</p>';
+        answerBox.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Ask';
+      }
+    }
+
+    fetch('/status').then(r => r.json()).then(d => {
+      console.log('RAG DB:', d.documents_indexed, 'documents');
+    }).catch(() => {});
+  </script>
+</body>
+</html>

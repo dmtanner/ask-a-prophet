@@ -1,0 +1,44 @@
+# Configuration for Prophet RAG system
+
+# Ollama settings
+ollama:
+  base_url: "http://localhost:11434"
+  llm_model: "qwen3.6:latest"
+  embed_model: "nomic-embed-text"
+
+# ChromaDB persistence
+chroma:
+  persist_directory: "./chroma_persistent_db"
+  collection_name: "prophet_quotes"
+
+# Document ingestion
+ingestion:
+  sources:
+    general_conference:
+      enabled: true
+      max_ids: -1
+      per_request_delay: 0.5
+      
+    journal_of_discourses:
+      enabled: true
+      volumes:
+        - id: 1
+          archive_url: "https://archive.org/download/journalofdiscour01lond"
+        - id: 2
+          archive_url: "https://archive.org/download/journalofdiscour02lond"
+        - id: 3
+          archive_url: "https://archive.org/download/journalofdiscour03lond"
+        - id: 4
+          archive_url: "https://archive.org/download/journalofdiscour04lond"
+
+# Text splitting
+splitting:
+  chunk_size: 800
+  chunk_overlap: 100
+
+# Server
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  cors_origins: ["*"]
