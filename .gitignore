@@ -1,24 +1,45 @@
-# Local vector stores
+# Local vector stores and embeddings
 chroma/
 chroma_db/
 chroma_langchain_db/
 chroma_persistent_db/
-chroma_persistent_db.bak-*/
+chroma_persistent_db.bak*/
+*.sqlite3
 
 # Runtime / ingest state
 *.log
 .ingest_checkpoint.json
 .config_backup.yaml
 
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+.eggs/
+dist/
+build/
 .venv/
 venv/
-.env
-.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Notebooks / editor
+# Notebooks / editor / OS
+*.ipynb
 .ipynb_checkpoints/
+.idea/
+.vscode/
 .DS_Store
+*.swp
