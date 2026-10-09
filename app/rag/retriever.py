@@ -3,8 +3,7 @@
 import logging
 from dataclasses import dataclass
 
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
+from app.rag.llm import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -75,17 +74,6 @@ def retrieve_contexts(query, k=5):
     return results
 
 
-def get_llm():
-    from app.config import load_config
-    config = load_config()
-    ollama_cfg = config.get("ollama", {})
-    return ChatOllama(
-        model=ollama_cfg.get("llm_model", "qwen3.6:latest"),
-        base_url=ollama_cfg.get("base_url", "http://localhost:11434"),
-        temperature=0.2,
-    )
-
-
 def format_context(results: list[SearchResult]) -> str:
     parts = []
     for r in results:
@@ -97,15 +85,9 @@ def format_context(results: list[SearchResult]) -> str:
 def generate_answer(query, k=5):
     """Retrieve context and generate a prophet-persona answer."""
     results = retrieve_contexts(query, k=k)
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", PROPHET_SYSTEM_TEMPLATE),
-        ("human", ANSWER_USER_TEMPLATE),
-    ])
-    chain = prompt | get_llm()
-    response = chain.invoke({"context": format_context(results), "query": query})
-
-    return response.content, results
+    user_prompt = ANSWER_USER_TEMPLATE.format(context=format_context(results), query=query)
+    answer = get_llm().complete(PROPHET_SYSTEM_TEMPLATE, user_prompt)
+    return answer, results
 
 
 if __name__ == "__main__":

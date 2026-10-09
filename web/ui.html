@@ -132,11 +132,14 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query, k: 5 })
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+          const detail = await res.json().then(d => d.detail).catch(() => null);
+          throw new Error(typeof detail === 'string' ? detail : 'HTTP ' + res.status);
+        }
         const data = await res.json();
         showAnswer(data.answer, data.sources);
       } catch (err) {
-        answerBox.innerHTML = '<p style="color:#c44;">Error: ' + escapeHtml(err.message) + '</p><p>Is the API server running?</p>';
+        answerBox.innerHTML = '<p style="color:#c44;">' + escapeHtml(err.message) + '</p>';
         answerBox.style.display = 'block';
       } finally {
         submitBtn.disabled = false;

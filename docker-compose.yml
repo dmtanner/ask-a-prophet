@@ -1,0 +1,28 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      CHROMA_PERSIST_DIR: /data/chroma
+      PORT: "8000"
+    volumes:
+      - chroma:/data/chroma
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # Serves nomic-embed-text for query embeddings (and the answer model if LLM_PROVIDER=ollama).
+  # After first start: docker compose exec ollama ollama pull nomic-embed-text
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  chroma:
+  ollama:

@@ -1,6 +1,13 @@
 # Configuration for Prophet RAG system
 
-# Ollama settings
+# Answer model. Env vars in .env.example override any of these.
+llm:
+  provider: "ollama"     # ollama (local) | anthropic (API key from ANTHROPIC_API_KEY)
+  model: ""              # empty = provider default: ollama.llm_model or claude-opus-5
+  max_tokens: 16000
+  effort: "medium"       # anthropic only: low | medium | high
+
+# Ollama: embeddings always run here; the answer model too when llm.provider is ollama
 ollama:
   base_url: "http://localhost:11434"
   llm_model: "qwen3.6:latest"
@@ -32,4 +39,5 @@ server:
   host: "0.0.0.0"
   port: 8000
   debug: false
-  cors_origins: ["*"]
+  cors_origins: ["*"]          # set to your site origin in production
+  rate_limit_per_minute: 10    # per client IP on /query; 0 disables
