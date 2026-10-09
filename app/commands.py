@@ -1,7 +1,7 @@
 """CLI entry points for Prophet RAG."""
 
 import logging
-import sys
+from typing import Annotated
 
 import typer
 
@@ -12,8 +12,7 @@ logger = logging.getLogger(__name__)
 typer_app = typer.Typer(help="Prophet RAG — ingest and query LDS conference talks")
 
 
-@typer_app.command()
-def ingest():
+def _ingest() -> None:
     """Run the full ingestion pipeline."""
     from app.ingestion.pipeline import ingest_all
 
@@ -21,27 +20,42 @@ def ingest():
     print(f"Indexed {count} document chunks into ChromaDB")
 
 
-@typer_app.command(name="serve")
-def serve(
-    host: str = typer.Option("0.0.0.0", "--host", "-h"),
-    port: int = typer.Option(8000, "--port", "-p"),
-    reload: bool = True,
-):
+typer_app.command(name="ingest")(_ingest)
+
+
+def ingest() -> None:
+    """Pip console script entry for `ingest`. Parses flags via Typer so `--help` doesn't start a run."""
+    typer.run(_ingest)
+
+
+def _serve(
+    host: Annotated[str, typer.Option("--host", "-H")] = "0.0.0.0",
+    port: Annotated[int, typer.Option("--port", "-p")] = 8000,
+    reload: Annotated[bool, typer.Option("--reload/--no-reload")] = True,
+) -> None:
     """Start the FastAPI server."""
     from app.config import load_config
-    
+
     cfg = load_config().get("server", {})
-    final_host = host if host != "0.0.0.0" else cfg.get("host", "0.0.0.0")
-    final_port = port if port != 8000 else cfg.get("port", 8000)
-    final_reload = reload
-    
+    bind_host = host if host != "0.0.0.0" else cfg.get("host", "0.0.0.0")
+    bind_port = port if port != 8000 else cfg.get("port", 8000)
+
     import uvicorn
+
     uvicorn.run(
         "app.api.server:app",
-        host=final_host,
-        port=final_port,
-        reload=final_reload,
+        host=bind_host,
+        port=int(bind_port),
+        reload=reload,
     )
+
+
+typer_app.command(name="serve")(_serve)
+
+
+def serve() -> None:
+    """Pip console script entry for `serve`. Parses --host/--port via Typer."""
+    typer.run(_serve)
 
 
 if __name__ == "__main__":
